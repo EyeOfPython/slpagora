@@ -36,7 +36,7 @@ fn ensure_wallet_interactive() -> Result<wallet::Wallet, Box<std::error::Error>>
             io::stdout().flush()?;
             let wallet_file_path: String = read!("{}\n");
             let wallet_file_path =
-                if wallet_file_path.len() == 0 { &wallet_file_path }
+                if wallet_file_path.len() != 0 { &wallet_file_path }
                 else {WALLET_FILE_NAME};
             use rand::RngCore;
             let mut rng = rand::rngs::OsRng::new().unwrap();
