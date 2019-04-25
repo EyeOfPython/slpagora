@@ -2,7 +2,7 @@ use crate::serialize::write_var_int;
 use crate::script::Script;
 
 use std::io;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, WriteBytesExt};
 
 
 #[derive(Clone, Debug)]
@@ -13,15 +13,15 @@ pub struct TxOutpoint {
 
 #[derive(Clone, Debug)]
 pub struct TxInput {
-    outpoint: TxOutpoint,
-    script: Script,
-    sequence: u32,
+    pub outpoint: TxOutpoint,
+    pub script: Script,
+    pub sequence: u32,
 }
 
 #[derive(Clone, Debug)]
 pub struct TxOutput {
-    value: u64,
-    script: Script,
+    pub value: u64,
+    pub script: Script,
 }
 
 #[derive(Clone, Debug)]
@@ -30,6 +30,12 @@ pub struct Tx {
     inputs: Vec<TxInput>,
     outputs: Vec<TxOutput>,
     lock_time: u32,
+}
+
+pub fn tx_hex_to_hash(s: &str) -> [u8; 32] {
+    let mut tx_hash = [0; 32];
+    tx_hash.copy_from_slice(&hex::decode(s).unwrap().iter().rev().cloned().collect::<Vec<_>>());
+    tx_hash
 }
 
 impl TxInput {
@@ -85,5 +91,13 @@ impl Tx {
         }
         write.write_u32::<LittleEndian>(self.lock_time)?;
         Ok(())
+    }
+
+    pub fn inputs(&self) -> &[TxInput] {
+        &self.inputs
+    }
+
+    pub fn outputs(&self) -> &[TxOutput] {
+        &self.outputs
     }
 }
