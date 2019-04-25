@@ -446,7 +446,7 @@ pub fn accept_trades_interactive(wallet: &Wallet) -> Result<(), Box<std::error::
     println!("You selected the following trade:");
     println!("{:20}{:10} {:<}",
              "Purchase amount:",
-             trade.sell_amount * 10.0f64.powi(-(trade_token_details.decimals as i32)),
+             trade.sell_amount as f64 * 10.0f64.powi(-(trade_token_details.decimals as i32)),
              option_str(&trade_token_details.symbol));
     println!("{:20}{:10} sats", "Spend amount:", trade.buy_amount);
     println!("{:20}{}", "Token ID:", trade_token_details.id);
