@@ -1,5 +1,6 @@
 use qrcode::QrCode;
 use std::iter;
+use colored::*;
 
 pub fn display(data: &[u8]) {
 
@@ -38,7 +39,7 @@ pub fn display(data: &[u8]) {
             line_buffer.push(block);
         }
 
-        println!("{}", line_buffer);
+        println!("{}", line_buffer.as_str().black().on_bright_white());
         line_buffer.clear();
     }
 }
