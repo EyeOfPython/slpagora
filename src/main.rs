@@ -102,7 +102,11 @@ fn do_transaction(w: &wallet::Wallet) -> Result<(), Box<std::error::Error>> {
     };
     let back_to_wallet_idx = tx_build.add_output(&output_back_to_wallet);
     let estimated_size = tx_build.estimate_size();
-    let send_back_to_wallet_amount = balance - (send_amount + estimated_size + 5);
+    let send_back_to_wallet_amount = if balance == send_amount {
+        0
+    } else {
+        balance - (send_amount + estimated_size + 5)
+    };
     if send_back_to_wallet_amount < w.dust_amount() {
         tx_build.remove_output(back_to_wallet_idx);
     } else {
