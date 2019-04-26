@@ -2,7 +2,7 @@ use crate::wallet::Wallet;
 use crate::outputs::{EnforceOutputsOutput, SLPSendOutput, P2PKHOutput, TradeOfferOutput, P2SHOutput};
 use crate::address::{Address, AddressType};
 use crate::hash::hash160;
-use crate::incomplete_tx::{Output, Utxo};
+use crate::incomplete_tx::{IncompleteTx, Output, Utxo};
 use crate::tx::{tx_hex_to_hash, TxOutpoint};
 use crate::script::{Script, Op, OpCodeType};
 use std::io::{self, Write, Cursor};
@@ -97,9 +97,16 @@ fn option_str(s: &Option<String>) -> &str {
 }
 
 pub fn create_trade_interactive(wallet: &Wallet) -> Result<(), Box<std::error::Error>> {
+    let (tx_build, balance) = wallet.init_transaction();
+    if balance < wallet.dust_amount() {
+        println!("Your balance ({}) isn't sufficient to broadcast a transaction. Please fund some \
+                  BCH to your wallet's address: {}", balance, wallet.address().cash_addr());
+        return Ok(());
+    }
     print!("Enter the token id or token name/symbol you want to sell: ");
     io::stdout().flush()?;
     let token_str: String = read!("{}\n");
+    let token_str = token_str.trim().to_string();
 
     let mut tokens_found = fetch_tokens(Some(&token_str))?;
     if tokens_found.len() == 0 {
@@ -138,8 +145,8 @@ pub fn create_trade_interactive(wallet: &Wallet) -> Result<(), Box<std::error::E
         print!("Enter the number (0-{}) you want to sell: ", tokens_found.len() - 1);
         io::stdout().flush()?;
         let token_idx_str: String = read!("{}\n");
+        let token_idx_str = token_idx_str.trim();
         if token_idx_str.len() == 0 {
-            println!("Bye, have a great time!");
             return Ok(());
         }
         match token_idx_str.parse::<usize>() {
@@ -170,6 +177,7 @@ pub fn create_trade_interactive(wallet: &Wallet) -> Result<(), Box<std::error::E
     print!("Enter the amount of {} you want to sell (decimal): ", option_str(&token.symbol));
     io::stdout().flush()?;
     let sell_amount_str: String = read!("{}\n");
+    let sell_amount_str = sell_amount_str.trim();
     let sell_amount_display: f64 = sell_amount_str.parse().map_err(|err| {
         println!("Invalid number: {}", err);
         println!("Exit.");
@@ -180,6 +188,7 @@ pub fn create_trade_interactive(wallet: &Wallet) -> Result<(), Box<std::error::E
     print!("Enter the amount of BCH you want to receive (satoshis): ");
     io::stdout().flush()?;
     let buy_amount_str: String = read!("{}\n");
+    let buy_amount_str = buy_amount_str.trim();
     let buy_amount: u64 = buy_amount_str.parse().map_err(|err| {
         println!("Invalid number: {}", err);
         println!("Exit.");
@@ -187,6 +196,8 @@ pub fn create_trade_interactive(wallet: &Wallet) -> Result<(), Box<std::error::E
     })?;
 
     confirm_trade_interactive(wallet,
+                              tx_build,
+                              balance,
                               &token,
                               sell_amount,
                               sell_amount_display,
@@ -195,15 +206,17 @@ pub fn create_trade_interactive(wallet: &Wallet) -> Result<(), Box<std::error::E
     Ok(())
 }
 
-fn confirm_trade_interactive(w: &Wallet,
+fn confirm_trade_interactive(wallet: &Wallet,
+                             mut tx_build: IncompleteTx,
+                             balance: u64,
                              token: &TokenEntry,
                              sell_amount: u64,
                              sell_amount_display: f64,
                              buy_amount: u64) -> Result<(), Box<std::error::Error>> {
     let mut token_id = [0; 32];
     token_id.copy_from_slice(&hex::decode(&token.id)?);
-    let receiving_address = w.address().clone();
-    let cancel_address = w.address().clone();
+    let receiving_address = wallet.address().clone();
+    let cancel_address = wallet.address().clone();
     let output = EnforceOutputsOutput {
         value: 0,  // ignored for script hash generation
         enforced_outputs: vec![
@@ -231,23 +244,26 @@ fn confirm_trade_interactive(w: &Wallet,
         AddressType::P2SH,
         pkh,
     );
+    let already_existing = wallet.get_utxos(&addr_bch).into_iter()
+        .map(|utxo| utxo.txid)
+        .collect::<HashSet<_>>();
     println!("--------------------------------------------------");
+    crate::display_qr::display(addr_slp.cash_addr().as_bytes());
     println!("Please send EXACTLY {} {} to the following address:",
              sell_amount_display,
              option_str(&token.symbol));
     println!("{}", addr_slp.cash_addr());
-    println!();
+    println!("You can also scan the QR code above.");
     println!("Sending a different amount or incorrect token will likely burn the tokens.");
 
     println!("\nDO NOT CLOSE THIS PROGRAM YET BEFORE OR AFTER YOU SENT THE PAYMENT");
 
     println!("Waiting for transaction...");
 
-    let utxo = w.wait_for_transaction(&addr_bch);
+    let utxo = wallet.wait_for_transaction(&addr_bch, &already_existing);
 
     println!("Received tx: {}", utxo.txid);
 
-    let (mut tx_build, balance) = w.init_transaction();
     tx_build.add_output(&TradeOfferOutput {
         tx_id: tx_hex_to_hash(&utxo.txid),
         output_idx: utxo.vout,
@@ -259,14 +275,18 @@ fn confirm_trade_interactive(w: &Wallet,
     let size_so_far = tx_build.estimate_size();
     let mut send_output = P2PKHOutput {
         value: 0,
-        address: w.address().clone(),
+        address: wallet.address().clone(),
     };
     let size_output = send_output.script().to_vec().len() as u64;
-    send_output.value = balance - (size_so_far + size_output) - 20;
+    let total_spent = size_so_far + size_output + 20;
+    if total_spent > balance {
+        println!("The broadcast transaction cannot be sent due to insufficient funds");
+    }
+    send_output.value = balance - total_spent;
     tx_build.add_output(&send_output);
 
     let tx = tx_build.sign();
-    let result = w.send_tx(&tx)?;
+    let result = wallet.send_tx(&tx)?;
     println!("The trade listing transaction ID is: {}", result);
 
     Ok(())
@@ -418,10 +438,16 @@ pub fn accept_trades_interactive(wallet: &Wallet) -> Result<(), Box<std::error::
         println!("There currently aren't any open trades on the entire network.");
         return Ok(());
     }
+    if balance < wallet.dust_amount() {
+        println!("Your balance ({}) isn't sufficient to broadcast a transaction. Please fund some \
+                  BCH to your wallet's address: {}", balance, wallet.address().cash_addr());
+        return Ok(());
+    }
 
     print!("Enter the trade offer number to accept (0-{}): ", valid_trades.len() - 1);
     io::stdout().flush()?;
     let offer_idx_str: String = read!("{}\n");
+    let offer_idx_str = offer_idx_str.trim();
     if offer_idx_str.len() == 0 {
         println!("Bye!");
         return Ok(());
@@ -468,11 +494,12 @@ pub fn accept_trades_interactive(wallet: &Wallet) -> Result<(), Box<std::error::
         print!("Enter the slp address to send the tokens to: ");
         io::stdout().flush()?;
         let receiving_addr_str: String = read!("{}\n");
+        let receiving_addr_str = receiving_addr_str.trim();
         if receiving_addr_str.len() == 0 {
             println!("Bye!");
             return Ok(());
         }
-        let addr = match Address::from_cash_addr(receiving_addr_str) {
+        let addr = match Address::from_cash_addr(receiving_addr_str.to_string()) {
             Ok(addr) => addr,
             Err(err) => {
                 println!("Please enter a valid address: {:?}", err);
@@ -557,17 +584,21 @@ pub fn accept_trades_interactive(wallet: &Wallet) -> Result<(), Box<std::error::
     let mut tx_ser = Vec::new();
     tx.write_to_stream(&mut tx_ser)?;
 
-    println!("The transaction hash is:");
-    println!("{}", hex::encode(&tx_ser));
+    println!("Type \"hex\" (without quotes) to show the transaction hex instead of broadcasting.");
     println!("After broadcasting, your balance will be {} sats.", balance - total_spent);
-    println!("Should the transaction be broadcast now to seal the deal? Type \"yes\" \
-              (without quotes): ");
-
+    print!("Should the transaction be broadcast now to seal the deal? Type \"yes\" \
+            (without quotes): ");
     io::stdout().flush()?;
     let confirm_send: String = read!("{}\n");
-    if confirm_send.to_ascii_lowercase().as_str() == "yes" {
-        let response = wallet.send_tx(&tx)?;
-        println!("Sent transaction. Transaction ID is: {}", response);
+    match confirm_send.to_ascii_lowercase().trim() {
+        "yes" => {
+            let response = wallet.send_tx(&tx)?;
+            println!("Sent transaction. Transaction ID is: {}", response);
+        },
+        "hex" => {
+            println!("{}", hex::encode(&tx_ser));
+        },
+        _ => {},
     }
 
     Ok(())

@@ -17,3 +17,6 @@ num-traits = "0.2.6"
 text_io = "0.1.7"
 reqwest = "0.9.15"
 serde = { version="1.0.90", features = ["derive"] }
+dirs = "1.0.5"
+qrcode = "0.10.0"
+colored = "1.7.0"

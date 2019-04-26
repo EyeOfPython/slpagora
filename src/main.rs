@@ -12,6 +12,7 @@ pub mod address;
 pub mod outputs;
 pub mod wallet;
 pub mod trade;
+pub mod display_qr;
 
 use std::io::{self, Write, Read};
 use text_io::{read, try_read, try_scan};
@@ -19,25 +20,22 @@ use std::env;
 
 
 const WALLET_FILE_NAME: &str = "trade.dat";
+const SLP_AGORA_PATH: &str = ".slpagora";
 
 
 fn ensure_wallet_interactive() -> Result<wallet::Wallet, Box<std::error::Error>> {
-    match std::fs::File::open(WALLET_FILE_NAME) {
+    let trades_dir = dirs::home_dir().unwrap_or(env::current_dir()?).join(SLP_AGORA_PATH);
+    let wallet_file_path = trades_dir.as_path().join(WALLET_FILE_NAME);
+    std::fs::create_dir_all(trades_dir)?;
+    match std::fs::File::open(&wallet_file_path) {
         Ok(mut file) => {
+            println!("Using wallet file at {}", wallet_file_path.display());
             let mut secret_bytes = [0; 32];
             file.read(&mut secret_bytes)?;
             Ok(wallet::Wallet::from_secret(&secret_bytes)?)
         },
         Err(ref err) if err.kind() == io::ErrorKind::NotFound => {
-            println!("There's currently no wallet created. Press ENTER to create one at the \
-                      current working directory ({}/{}) or enter the path to the wallet file: ",
-                     env::current_dir()?.display(),
-                     WALLET_FILE_NAME);
-            io::stdout().flush()?;
-            let wallet_file_path: String = read!("{}\n");
-            let wallet_file_path =
-                if wallet_file_path.len() != 0 { &wallet_file_path }
-                else {WALLET_FILE_NAME};
+            println!("Creating wallet at {}", wallet_file_path.display());
             use rand::RngCore;
             let mut rng = rand::rngs::OsRng::new().unwrap();
             let mut secret_bytes = [0; 32];
@@ -50,27 +48,13 @@ fn ensure_wallet_interactive() -> Result<wallet::Wallet, Box<std::error::Error>>
     }
 }
 
-pub fn show_qr(s: &str) {
-    use std::process::Command;
-    println!("{}", String::from_utf8(
-        Command::new("python3")
-            .args(&[
-                "-c",
-                &format!(
-                    "import pyqrcode; print(pyqrcode.create('{}').terminal())",
-                    s,
-                ),
-            ])
-            .output()
-            .unwrap().stdout
-    ).unwrap());
-}
-
 fn show_balance(w: &wallet::Wallet) {
     let balance = w.get_balance();
     println!("Your wallet's balance is: {} sats or {} BCH.",
              balance,
              balance as f64 / 100_000_000.0);
+    println!("Your wallet's address is: {}", w.address().cash_addr());
+    display_qr::display(w.address().cash_addr().as_bytes());
 }
 
 fn do_transaction(w: &wallet::Wallet) -> Result<(), Box<std::error::Error>> {
@@ -78,10 +62,16 @@ fn do_transaction(w: &wallet::Wallet) -> Result<(), Box<std::error::Error>> {
     println!("Your wallet's balance is: {} sats or {} BCH.",
              balance,
              balance as f64 / 100_000_000.0);
+    if balance < w.dust_amount() {
+        println!("Your balance ({}) isn't sufficient to broadcast a transaction. Please fund some \
+                  BCH to your wallet's address: {}", balance, w.address().cash_addr());
+        return Ok(());
+    }
     print!("Enter the address to send to: ");
     io::stdout().flush()?;
     let addr_str: String = read!("{}\n");
-    let receiving_addr = match address::Address::from_cash_addr(addr_str)  {
+    let addr_str = addr_str.trim();
+    let receiving_addr = match address::Address::from_cash_addr(addr_str.to_string())  {
         Ok(addr) => addr,
         Err(err) => {
             println!("Please enter a valid address: {:?}", err);
@@ -96,22 +86,30 @@ fn do_transaction(w: &wallet::Wallet) -> Result<(), Box<std::error::Error>> {
             balance: ");
     io::stdout().flush()?;
     let send_amount_str: String = read!("{}\n");
-    let send_amount = if send_amount_str.as_str() == "all" {
+    let send_amount_str = send_amount_str.trim();
+    let send_amount = if send_amount_str == "all" {
         balance
     } else {
         send_amount_str.parse::<u64>()?
     };
-    tx_build.add_output(&outputs::P2PKHOutput {
+    let mut output_send = outputs::P2PKHOutput {
         value: send_amount,
         address: receiving_addr,
-    });
+    };
+    let send_idx = tx_build.add_output(&output_send);
     let mut output_back_to_wallet = outputs::P2PKHOutput {
         value: 0,
         address: w.address().clone(),
     };
     let back_to_wallet_idx = tx_build.add_output(&output_back_to_wallet);
     let estimated_size = tx_build.estimate_size();
-    let send_back_to_wallet_amount = balance - (send_amount + estimated_size + 5);
+    let send_back_to_wallet_amount = if balance < send_amount + (estimated_size + 5) {
+        output_send.value = balance - (estimated_size + 5);
+        tx_build.replace_output(send_idx, &output_send);
+        0
+    } else {
+        balance - (send_amount + estimated_size + 5)
+    };
     if send_back_to_wallet_amount < w.dust_amount() {
         tx_build.remove_output(back_to_wallet_idx);
     } else {
@@ -119,7 +117,8 @@ fn do_transaction(w: &wallet::Wallet) -> Result<(), Box<std::error::Error>> {
         tx_build.replace_output(back_to_wallet_idx, &output_back_to_wallet);
     }
     let tx = tx_build.sign();
-    w.send_tx(&tx)?;
+    let response = w.send_tx(&tx)?;
+    println!("Sent transaction. Transaction ID is: {}", response);
 
     Ok(())
 }
@@ -128,21 +127,26 @@ fn main() -> Result<(), Box<std::error::Error>> {
     let wallet = ensure_wallet_interactive()?;
     println!("Your wallet address is: {}", wallet.address().cash_addr());
 
-    println!("Select an option from below:");
-    println!("1: Show wallet balance");
-    println!("2: Send BCH from this wallet to an address");
-    println!("3: Create a new trade for a token on the BCH blockchain");
-    println!("4: List all available token trades on the BCH blockchain");
-    println!("Anything else: Exit");
-    print!("Your choice: ");
-    io::stdout().flush()?;
-    let wallet_file_path: String = read!("{}\n");
-    match wallet_file_path.as_str() {
-        "1" => show_balance(&wallet),
-        "2" => do_transaction(&wallet)?,
-        "3" => trade::create_trade_interactive(&wallet)?,
-        "4" => trade::accept_trades_interactive(&wallet)?,
-        _ => println!("Bye, have a great time!"),
+    loop {
+        println!("---------------------------------");
+        println!("Select an option from below:");
+        println!("1: Show wallet balance / fund wallet");
+        println!("2: Send BCH from this wallet to an address");
+        println!("3: Create a new trade for a token on the BCH blockchain");
+        println!("4: List all available token trades on the BCH blockchain");
+        println!("Anything else: Exit");
+        print!("Your choice: ");
+        io::stdout().flush()?;
+        let choice: String = read!("{}\n");
+        match choice.trim() {
+            "1" => show_balance(&wallet),
+            "2" => do_transaction(&wallet)?,
+            "3" => trade::create_trade_interactive(&wallet)?,
+            "4" => trade::accept_trades_interactive(&wallet)?,
+            _ => {
+                println!("Bye, have a great time!");
+                return Ok(());
+            },
+        }
     }
-    Ok(())
 }
