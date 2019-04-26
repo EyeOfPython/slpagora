@@ -175,6 +175,9 @@ pub fn create_trade_interactive(wallet: &Wallet) -> Result<(), Box<std::error::E
     println!("{:>18} {}", "Decimals:", token.decimals);
     println!("{:>18} {}", "Initial Token Qty:", token.initial_token_qty);
 
+    println!("NOTE: Due to a bug, ensure you haven't already created exactly the same trade \
+              before (same wallet, same token and same buy/sell amounts). Otherwise that trade \
+              will be listed twice. This will be fixed once the protocol has been stabilized.");
     print!("Enter the amount of {} you want to sell (decimal): ", option_str(&token.symbol));
     io::stdout().flush()?;
     let sell_amount_str: String = read!("{}\n");
