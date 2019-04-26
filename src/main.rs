@@ -12,6 +12,7 @@ pub mod address;
 pub mod outputs;
 pub mod wallet;
 pub mod trade;
+pub mod display_qr;
 
 use std::io::{self, Write, Read};
 use text_io::{read, try_read, try_scan};
@@ -47,27 +48,13 @@ fn ensure_wallet_interactive() -> Result<wallet::Wallet, Box<std::error::Error>>
     }
 }
 
-pub fn show_qr(s: &str) {
-    use std::process::Command;
-    println!("{}", String::from_utf8(
-        Command::new("python3")
-            .args(&[
-                "-c",
-                &format!(
-                    "import pyqrcode; print(pyqrcode.create('{}').terminal())",
-                    s,
-                ),
-            ])
-            .output()
-            .unwrap().stdout
-    ).unwrap());
-}
-
 fn show_balance(w: &wallet::Wallet) {
     let balance = w.get_balance();
     println!("Your wallet's balance is: {} sats or {} BCH.",
              balance,
              balance as f64 / 100_000_000.0);
+    println!("Your wallet's address is: {}", w.address().cash_addr());
+    display_qr::display(w.address().cash_addr().as_bytes());
 }
 
 fn do_transaction(w: &wallet::Wallet) -> Result<(), Box<std::error::Error>> {
@@ -136,7 +123,7 @@ fn main() -> Result<(), Box<std::error::Error>> {
     loop {
         println!("---------------------------------");
         println!("Select an option from below:");
-        println!("1: Show wallet balance");
+        println!("1: Show wallet balance / fund wallet");
         println!("2: Send BCH from this wallet to an address");
         println!("3: Create a new trade for a token on the BCH blockchain");
         println!("4: List all available token trades on the BCH blockchain");

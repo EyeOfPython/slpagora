@@ -246,11 +246,12 @@ fn confirm_trade_interactive(wallet: &Wallet,
         pkh,
     );
     println!("--------------------------------------------------");
+    crate::display_qr::display(addr_slp.cash_addr().as_bytes());
     println!("Please send EXACTLY {} {} to the following address:",
              sell_amount_display,
              option_str(&token.symbol));
     println!("{}", addr_slp.cash_addr());
-    println!();
+    println!("You can also scan the QR code above.");
     println!("Sending a different amount or incorrect token will likely burn the tokens.");
 
     println!("\nDO NOT CLOSE THIS PROGRAM YET BEFORE OR AFTER YOU SENT THE PAYMENT");
