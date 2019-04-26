@@ -83,7 +83,8 @@ fn do_transaction(w: &wallet::Wallet) -> Result<(), Box<std::error::Error>> {
     print!("Enter the address to send to: ");
     io::stdout().flush()?;
     let addr_str: String = read!("{}\n");
-    let receiving_addr = match address::Address::from_cash_addr(addr_str)  {
+    let addr_str = addr_str.trim();
+    let receiving_addr = match address::Address::from_cash_addr(addr_str.to_string())  {
         Ok(addr) => addr,
         Err(err) => {
             println!("Please enter a valid address: {:?}", err);
@@ -98,7 +99,8 @@ fn do_transaction(w: &wallet::Wallet) -> Result<(), Box<std::error::Error>> {
             balance: ");
     io::stdout().flush()?;
     let send_amount_str: String = read!("{}\n");
-    let send_amount = if send_amount_str.as_str() == "all" {
+    let send_amount_str = send_amount_str.trim();
+    let send_amount = if send_amount_str == "all" {
         balance
     } else {
         send_amount_str.parse::<u64>()?
@@ -121,7 +123,8 @@ fn do_transaction(w: &wallet::Wallet) -> Result<(), Box<std::error::Error>> {
         tx_build.replace_output(back_to_wallet_idx, &output_back_to_wallet);
     }
     let tx = tx_build.sign();
-    w.send_tx(&tx)?;
+    let response = w.send_tx(&tx)?;
+    println!("Sent transaction. Transaction ID is: {}", response);
 
     Ok(())
 }
@@ -141,7 +144,7 @@ fn main() -> Result<(), Box<std::error::Error>> {
         print!("Your choice: ");
         io::stdout().flush()?;
         let choice: String = read!("{}\n");
-        match choice.trim_end() {
+        match choice.trim() {
             "1" => show_balance(&wallet),
             "2" => do_transaction(&wallet)?,
             "3" => trade::create_trade_interactive(&wallet)?,

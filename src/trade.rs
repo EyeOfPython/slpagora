@@ -106,6 +106,7 @@ pub fn create_trade_interactive(wallet: &Wallet) -> Result<(), Box<std::error::E
     print!("Enter the token id or token name/symbol you want to sell: ");
     io::stdout().flush()?;
     let token_str: String = read!("{}\n");
+    let token_str = token_str.trim().to_string();
 
     let mut tokens_found = fetch_tokens(Some(&token_str))?;
     if tokens_found.len() == 0 {
@@ -144,6 +145,7 @@ pub fn create_trade_interactive(wallet: &Wallet) -> Result<(), Box<std::error::E
         print!("Enter the number (0-{}) you want to sell: ", tokens_found.len() - 1);
         io::stdout().flush()?;
         let token_idx_str: String = read!("{}\n");
+        let token_idx_str = token_idx_str.trim();
         if token_idx_str.len() == 0 {
             println!("Bye, have a great time!");
             return Ok(());
@@ -176,6 +178,7 @@ pub fn create_trade_interactive(wallet: &Wallet) -> Result<(), Box<std::error::E
     print!("Enter the amount of {} you want to sell (decimal): ", option_str(&token.symbol));
     io::stdout().flush()?;
     let sell_amount_str: String = read!("{}\n");
+    let sell_amount_str = sell_amount_str.trim();
     let sell_amount_display: f64 = sell_amount_str.parse().map_err(|err| {
         println!("Invalid number: {}", err);
         println!("Exit.");
@@ -186,6 +189,7 @@ pub fn create_trade_interactive(wallet: &Wallet) -> Result<(), Box<std::error::E
     print!("Enter the amount of BCH you want to receive (satoshis): ");
     io::stdout().flush()?;
     let buy_amount_str: String = read!("{}\n");
+    let buy_amount_str = buy_amount_str.trim();
     let buy_amount: u64 = buy_amount_str.parse().map_err(|err| {
         println!("Invalid number: {}", err);
         println!("Exit.");
@@ -440,6 +444,7 @@ pub fn accept_trades_interactive(wallet: &Wallet) -> Result<(), Box<std::error::
     print!("Enter the trade offer number to accept (0-{}): ", valid_trades.len() - 1);
     io::stdout().flush()?;
     let offer_idx_str: String = read!("{}\n");
+    let offer_idx_str = offer_idx_str.trim();
     if offer_idx_str.len() == 0 {
         println!("Bye!");
         return Ok(());
@@ -486,11 +491,12 @@ pub fn accept_trades_interactive(wallet: &Wallet) -> Result<(), Box<std::error::
         print!("Enter the slp address to send the tokens to: ");
         io::stdout().flush()?;
         let receiving_addr_str: String = read!("{}\n");
+        let receiving_addr_str = receiving_addr_str.trim();
         if receiving_addr_str.len() == 0 {
             println!("Bye!");
             return Ok(());
         }
-        let addr = match Address::from_cash_addr(receiving_addr_str) {
+        let addr = match Address::from_cash_addr(receiving_addr_str.to_string()) {
             Ok(addr) => addr,
             Err(err) => {
                 println!("Please enter a valid address: {:?}", err);
@@ -583,7 +589,7 @@ pub fn accept_trades_interactive(wallet: &Wallet) -> Result<(), Box<std::error::
 
     io::stdout().flush()?;
     let confirm_send: String = read!("{}\n");
-    if confirm_send.to_ascii_lowercase().as_str() == "yes" {
+    if confirm_send.to_ascii_lowercase().trim() == "yes" {
         let response = wallet.send_tx(&tx)?;
         println!("Sent transaction. Transaction ID is: {}", response);
     }
