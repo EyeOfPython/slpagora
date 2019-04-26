@@ -584,17 +584,21 @@ pub fn accept_trades_interactive(wallet: &Wallet) -> Result<(), Box<std::error::
     let mut tx_ser = Vec::new();
     tx.write_to_stream(&mut tx_ser)?;
 
-    println!("The transaction hash is:");
-    println!("{}", hex::encode(&tx_ser));
+    println!("Type \"hex\" (without quotes) to show the transaction hex instead of broadcasting.");
     println!("After broadcasting, your balance will be {} sats.", balance - total_spent);
-    println!("Should the transaction be broadcast now to seal the deal? Type \"yes\" \
-              (without quotes): ");
-
+    print!("Should the transaction be broadcast now to seal the deal? Type \"yes\" \
+            (without quotes): ");
     io::stdout().flush()?;
     let confirm_send: String = read!("{}\n");
-    if confirm_send.to_ascii_lowercase().trim() == "yes" {
-        let response = wallet.send_tx(&tx)?;
-        println!("Sent transaction. Transaction ID is: {}", response);
+    match confirm_send.to_ascii_lowercase().trim() {
+        "yes" => {
+            let response = wallet.send_tx(&tx)?;
+            println!("Sent transaction. Transaction ID is: {}", response);
+        },
+        "hex" => {
+            println!("{}", hex::encode(&tx_ser));
+        },
+        _ => {},
     }
 
     Ok(())
