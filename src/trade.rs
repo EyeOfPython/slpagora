@@ -336,22 +336,31 @@ pub fn accept_trades_interactive(wallet: &Wallet) -> Result<(), Box<std::error::
         hex::encode(&trade.tx_id.iter().cloned().rev().collect::<Vec<_>>())
     }).collect::<Vec<_>>();
 
-    let trades_validity: Vec<SlpTxValidity> = reqwest::Client::new()
-        .post("https://rest.bitcoin.com/v2/slp/validateTxid")
-        .json(&vec![("txids", tx_hashes)].into_iter().collect::<HashMap<_, _>>())
-        .send()?
-        .json()?;
+    let trades_validity = tx_hashes.chunks(20).flat_map(|chunk| {
+        reqwest::Client::new()
+            .post("https://rest.bitcoin.com/v2/slp/validateTxid")
+            .json(&vec![("txids", chunk)].into_iter().collect::<HashMap<_, _>>())
+            .send().unwrap()
+            .json::<Vec<SlpTxValidity>>().unwrap()
+    }).collect::<Vec<_>>();
 
     let valid_txs = trades_validity.into_iter()
         .filter(|validity| validity.valid)
         .map(|validity| validity.txid)
         .collect::<HashSet<_>>();
 
-    let tx_details: Vec<TxDetails> = reqwest::Client::new()
-        .post("https://rest.bitcoin.com/v2/transaction/details")
-        .json(&vec![("txids", &valid_txs)].into_iter().collect::<HashMap<_, _>>())
-        .send()?
-        .json()?;
+    let tx_details = valid_txs
+        .iter()
+        .collect::<Vec<_>>()
+        .chunks(20)
+        .flat_map(|chunk| {
+            reqwest::Client::new()
+                .post("https://rest.bitcoin.com/v2/transaction/details")
+                .json(&vec![("txids", chunk)].into_iter().collect::<HashMap<_, _>>())
+                .send().unwrap()
+                .json::<Vec<TxDetails>>().unwrap()
+        })
+        .collect::<Vec<_>>();
 
     let token_ids = tx_details.into_iter().filter_map(|tx| {
         let mut p2sh_amount = None;
@@ -388,16 +397,23 @@ pub fn accept_trades_interactive(wallet: &Wallet) -> Result<(), Box<std::error::
         Some((tx_id?, (token_id?, p2sh_amount?)))
     }).collect::<HashMap<_, _>>();
 
-    let token_details = reqwest::Client::new()
-        .post("https://rest.bitcoin.com/v2/slp/list")
-        .json(&vec![(
-            "tokenIds",
-            token_ids.values().map(|(x, _)| x.clone()).collect::<HashSet<_>>(),
-        )].into_iter().collect::<HashMap<_, _>>())
-        .send()?
-        .json::<Vec<TokenEntry>>()?
+    let token_id_set = token_ids.values().map(|(x, _)| x).collect::<HashSet<_>>();
+    let token_details = token_id_set
         .into_iter()
-        .map(|token_details| (token_details.id.clone(), token_details))
+        .collect::<Vec<_>>()
+        .chunks(20)
+        .flat_map(|chunk| {
+            reqwest::Client::new()
+                .post("https://rest.bitcoin.com/v2/slp/list")
+                .json(&vec![(
+                    "tokenIds",
+                    chunk,
+                )].into_iter().collect::<HashMap<_, _>>())
+                .send().unwrap()
+                .json::<Vec<TokenEntry>>().unwrap()
+                .into_iter()
+                .map(|token_details| (token_details.id.clone(), token_details))
+        })
         .collect::<HashMap<_, _>>();
 
     let valid_trades = trades.into_iter()
