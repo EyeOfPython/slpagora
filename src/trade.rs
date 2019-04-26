@@ -276,7 +276,7 @@ fn confirm_trade_interactive(wallet: &Wallet,
         address: wallet.address().clone(),
     };
     let size_output = send_output.script().to_vec().len() as u64;
-    let total_spent = (size_so_far + size_output) - 20;
+    let total_spent = size_so_far + size_output + 20;
     if total_spent > balance {
         println!("The broadcast transaction cannot be sent due to insufficient funds");
     }
