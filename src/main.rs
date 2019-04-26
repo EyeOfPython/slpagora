@@ -19,25 +19,22 @@ use std::env;
 
 
 const WALLET_FILE_NAME: &str = "trade.dat";
+const SLP_AGORA_PATH: &str = ".slpagora";
 
 
 fn ensure_wallet_interactive() -> Result<wallet::Wallet, Box<std::error::Error>> {
-    match std::fs::File::open(WALLET_FILE_NAME) {
+    let trades_dir = env::home_dir().unwrap_or(env::current_dir()?).join(SLP_AGORA_PATH);
+    let wallet_file_path = trades_dir.as_path().join(WALLET_FILE_NAME);
+    std::fs::create_dir_all(trades_dir)?;
+    match std::fs::File::open(&wallet_file_path) {
         Ok(mut file) => {
+            println!("Using wallet file at {}", wallet_file_path.display());
             let mut secret_bytes = [0; 32];
             file.read(&mut secret_bytes)?;
             Ok(wallet::Wallet::from_secret(&secret_bytes)?)
         },
         Err(ref err) if err.kind() == io::ErrorKind::NotFound => {
-            println!("There's currently no wallet created. Press ENTER to create one at the \
-                      current working directory ({}/{}) or enter the path to the wallet file: ",
-                     env::current_dir()?.display(),
-                     WALLET_FILE_NAME);
-            io::stdout().flush()?;
-            let wallet_file_path: String = read!("{}\n");
-            let wallet_file_path =
-                if wallet_file_path.len() != 0 { &wallet_file_path }
-                else {WALLET_FILE_NAME};
+            println!("Creating wallet at {}", wallet_file_path.display());
             use rand::RngCore;
             let mut rng = rand::rngs::OsRng::new().unwrap();
             let mut secret_bytes = [0; 32];
