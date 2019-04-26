@@ -92,17 +92,20 @@ fn do_transaction(w: &wallet::Wallet) -> Result<(), Box<std::error::Error>> {
     } else {
         send_amount_str.parse::<u64>()?
     };
-    tx_build.add_output(&outputs::P2PKHOutput {
+    let mut output_send = outputs::P2PKHOutput {
         value: send_amount,
         address: receiving_addr,
-    });
+    };
+    let mut send_idx = tx_build.add_output(&output_send);
     let mut output_back_to_wallet = outputs::P2PKHOutput {
         value: 0,
         address: w.address().clone(),
     };
     let back_to_wallet_idx = tx_build.add_output(&output_back_to_wallet);
     let estimated_size = tx_build.estimate_size();
-    let send_back_to_wallet_amount = if balance == send_amount {
+    let send_back_to_wallet_amount = if balance < send_amount + (estimated_size + 5) {
+        output_send.value = balance - (estimated_size + 5);
+        tx_build.replace_output(send_idx, &output_send);
         0
     } else {
         balance - (send_amount + estimated_size + 5)
