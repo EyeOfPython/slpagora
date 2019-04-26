@@ -23,7 +23,7 @@ const SLP_AGORA_PATH: &str = ".slpagora";
 
 
 fn ensure_wallet_interactive() -> Result<wallet::Wallet, Box<std::error::Error>> {
-    let trades_dir = env::home_dir().unwrap_or(env::current_dir()?).join(SLP_AGORA_PATH);
+    let trades_dir = dirs::home_dir().unwrap_or(env::current_dir()?).join(SLP_AGORA_PATH);
     let wallet_file_path = trades_dir.as_path().join(WALLET_FILE_NAME);
     std::fs::create_dir_all(trades_dir)?;
     match std::fs::File::open(&wallet_file_path) {
@@ -75,6 +75,11 @@ fn do_transaction(w: &wallet::Wallet) -> Result<(), Box<std::error::Error>> {
     println!("Your wallet's balance is: {} sats or {} BCH.",
              balance,
              balance as f64 / 100_000_000.0);
+    if balance < w.dust_amount() {
+        println!("Your balance ({}) isn't sufficient to broadcast a transaction. Please fund some \
+                  BCH to your wallet's address: {}", balance, w.address().cash_addr());
+        return Ok(());
+    }
     print!("Enter the address to send to: ");
     io::stdout().flush()?;
     let addr_str: String = read!("{}\n");
@@ -125,21 +130,26 @@ fn main() -> Result<(), Box<std::error::Error>> {
     let wallet = ensure_wallet_interactive()?;
     println!("Your wallet address is: {}", wallet.address().cash_addr());
 
-    println!("Select an option from below:");
-    println!("1: Show wallet balance");
-    println!("2: Send BCH from this wallet to an address");
-    println!("3: Create a new trade for a token on the BCH blockchain");
-    println!("4: List all available token trades on the BCH blockchain");
-    println!("Anything else: Exit");
-    print!("Your choice: ");
-    io::stdout().flush()?;
-    let wallet_file_path: String = read!("{}\n");
-    match wallet_file_path.as_str() {
-        "1" => show_balance(&wallet),
-        "2" => do_transaction(&wallet)?,
-        "3" => trade::create_trade_interactive(&wallet)?,
-        "4" => trade::accept_trades_interactive(&wallet)?,
-        _ => println!("Bye, have a great time!"),
+    loop {
+        println!("---------------------------------");
+        println!("Select an option from below:");
+        println!("1: Show wallet balance");
+        println!("2: Send BCH from this wallet to an address");
+        println!("3: Create a new trade for a token on the BCH blockchain");
+        println!("4: List all available token trades on the BCH blockchain");
+        println!("Anything else: Exit");
+        print!("Your choice: ");
+        io::stdout().flush()?;
+        let choice: String = read!("{}\n");
+        match choice.trim_end() {
+            "1" => show_balance(&wallet),
+            "2" => do_transaction(&wallet)?,
+            "3" => trade::create_trade_interactive(&wallet)?,
+            "4" => trade::accept_trades_interactive(&wallet)?,
+            _ => {
+                println!("Bye, have a great time!");
+                return Ok(());
+            },
+        }
     }
-    Ok(())
 }

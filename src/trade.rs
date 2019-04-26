@@ -2,7 +2,7 @@ use crate::wallet::Wallet;
 use crate::outputs::{EnforceOutputsOutput, SLPSendOutput, P2PKHOutput, TradeOfferOutput, P2SHOutput};
 use crate::address::{Address, AddressType};
 use crate::hash::hash160;
-use crate::incomplete_tx::{Output, Utxo};
+use crate::incomplete_tx::{IncompleteTx, Output, Utxo};
 use crate::tx::{tx_hex_to_hash, TxOutpoint};
 use crate::script::{Script, Op, OpCodeType};
 use std::io::{self, Write, Cursor};
@@ -97,6 +97,12 @@ fn option_str(s: &Option<String>) -> &str {
 }
 
 pub fn create_trade_interactive(wallet: &Wallet) -> Result<(), Box<std::error::Error>> {
+    let (tx_build, balance) = wallet.init_transaction();
+    if balance < wallet.dust_amount() {
+        println!("Your balance ({}) isn't sufficient to broadcast a transaction. Please fund some \
+                  BCH to your wallet's address: {}", balance, wallet.address().cash_addr());
+        return Ok(());
+    }
     print!("Enter the token id or token name/symbol you want to sell: ");
     io::stdout().flush()?;
     let token_str: String = read!("{}\n");
@@ -187,6 +193,8 @@ pub fn create_trade_interactive(wallet: &Wallet) -> Result<(), Box<std::error::E
     })?;
 
     confirm_trade_interactive(wallet,
+                              tx_build,
+                              balance,
                               &token,
                               sell_amount,
                               sell_amount_display,
@@ -195,15 +203,17 @@ pub fn create_trade_interactive(wallet: &Wallet) -> Result<(), Box<std::error::E
     Ok(())
 }
 
-fn confirm_trade_interactive(w: &Wallet,
+fn confirm_trade_interactive(wallet: &Wallet,
+                             mut tx_build: IncompleteTx,
+                             balance: u64,
                              token: &TokenEntry,
                              sell_amount: u64,
                              sell_amount_display: f64,
                              buy_amount: u64) -> Result<(), Box<std::error::Error>> {
     let mut token_id = [0; 32];
     token_id.copy_from_slice(&hex::decode(&token.id)?);
-    let receiving_address = w.address().clone();
-    let cancel_address = w.address().clone();
+    let receiving_address = wallet.address().clone();
+    let cancel_address = wallet.address().clone();
     let output = EnforceOutputsOutput {
         value: 0,  // ignored for script hash generation
         enforced_outputs: vec![
@@ -243,11 +253,10 @@ fn confirm_trade_interactive(w: &Wallet,
 
     println!("Waiting for transaction...");
 
-    let utxo = w.wait_for_transaction(&addr_bch);
+    let utxo = wallet.wait_for_transaction(&addr_bch);
 
     println!("Received tx: {}", utxo.txid);
 
-    let (mut tx_build, balance) = w.init_transaction();
     tx_build.add_output(&TradeOfferOutput {
         tx_id: tx_hex_to_hash(&utxo.txid),
         output_idx: utxo.vout,
@@ -259,14 +268,18 @@ fn confirm_trade_interactive(w: &Wallet,
     let size_so_far = tx_build.estimate_size();
     let mut send_output = P2PKHOutput {
         value: 0,
-        address: w.address().clone(),
+        address: wallet.address().clone(),
     };
     let size_output = send_output.script().to_vec().len() as u64;
-    send_output.value = balance - (size_so_far + size_output) - 20;
+    let total_spent = (size_so_far + size_output) - 20;
+    if total_spent > balance {
+        println!("The broadcast transaction cannot be sent due to insufficient funds");
+    }
+    send_output.value = balance - total_spent;
     tx_build.add_output(&send_output);
 
     let tx = tx_build.sign();
-    let result = w.send_tx(&tx)?;
+    let result = wallet.send_tx(&tx)?;
     println!("The trade listing transaction ID is: {}", result);
 
     Ok(())
@@ -416,6 +429,11 @@ pub fn accept_trades_interactive(wallet: &Wallet) -> Result<(), Box<std::error::
 
     if valid_trades.len() == 0 {
         println!("There currently aren't any open trades on the entire network.");
+        return Ok(());
+    }
+    if balance < wallet.dust_amount() {
+        println!("Your balance ({}) isn't sufficient to broadcast a transaction. Please fund some \
+                  BCH to your wallet's address: {}", balance, wallet.address().cash_addr());
         return Ok(());
     }
 
