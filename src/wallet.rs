@@ -3,6 +3,7 @@ use serde::{Serialize, Deserialize};
 use crate::incomplete_tx::{IncompleteTx, Utxo};
 use crate::tx::{Tx, TxOutpoint, tx_hex_to_hash};
 use crate::outputs::{P2PKHOutput};
+use std::collections::HashSet;
 
 
 pub struct Wallet {
@@ -16,7 +17,6 @@ pub struct UtxoEntry {
     pub vout: u32,
     pub amount: f64,
     pub satoshis: u64,
-    pub confirmations: u32,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -51,11 +51,15 @@ impl Wallet {
         self.get_utxos(&self.address).iter().map(|utxo| utxo.satoshis).sum()
     }
 
-    pub fn wait_for_transaction(&self, address: &Address) -> UtxoEntry {
+    pub fn wait_for_transaction(&self, address: &Address, already_existing: &HashSet<String>)
+            -> UtxoEntry {
         loop {
-            let mut utxos = self.get_utxos(address);
-            if utxos.len() > 0 {
-                return utxos.remove(0)
+            let utxos = self.get_utxos(address);
+            let mut remaining = utxos.into_iter()
+                .filter(|utxo| !already_existing.contains(&utxo.txid))
+                .collect::<Vec<_>>();
+            if remaining.len() > 0 {
+                return remaining.remove(0)
             }
             std::thread::sleep(std::time::Duration::new(1, 0));
         }

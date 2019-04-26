@@ -147,7 +147,6 @@ pub fn create_trade_interactive(wallet: &Wallet) -> Result<(), Box<std::error::E
         let token_idx_str: String = read!("{}\n");
         let token_idx_str = token_idx_str.trim();
         if token_idx_str.len() == 0 {
-            println!("Bye, have a great time!");
             return Ok(());
         }
         match token_idx_str.parse::<usize>() {
@@ -175,9 +174,6 @@ pub fn create_trade_interactive(wallet: &Wallet) -> Result<(), Box<std::error::E
     println!("{:>18} {}", "Decimals:", token.decimals);
     println!("{:>18} {}", "Initial Token Qty:", token.initial_token_qty);
 
-    println!("NOTE: Due to a bug, ensure you haven't already created exactly the same trade \
-              before (same wallet, same token and same buy/sell amounts). Otherwise that trade \
-              will be listed twice. This will be fixed once the protocol has been stabilized.");
     print!("Enter the amount of {} you want to sell (decimal): ", option_str(&token.symbol));
     io::stdout().flush()?;
     let sell_amount_str: String = read!("{}\n");
@@ -248,6 +244,9 @@ fn confirm_trade_interactive(wallet: &Wallet,
         AddressType::P2SH,
         pkh,
     );
+    let already_existing = wallet.get_utxos(&addr_bch).into_iter()
+        .map(|utxo| utxo.txid)
+        .collect::<HashSet<_>>();
     println!("--------------------------------------------------");
     crate::display_qr::display(addr_slp.cash_addr().as_bytes());
     println!("Please send EXACTLY {} {} to the following address:",
@@ -261,7 +260,7 @@ fn confirm_trade_interactive(wallet: &Wallet,
 
     println!("Waiting for transaction...");
 
-    let utxo = wallet.wait_for_transaction(&addr_bch);
+    let utxo = wallet.wait_for_transaction(&addr_bch, &already_existing);
 
     println!("Received tx: {}", utxo.txid);
 

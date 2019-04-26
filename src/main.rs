@@ -96,7 +96,7 @@ fn do_transaction(w: &wallet::Wallet) -> Result<(), Box<std::error::Error>> {
         value: send_amount,
         address: receiving_addr,
     };
-    let mut send_idx = tx_build.add_output(&output_send);
+    let send_idx = tx_build.add_output(&output_send);
     let mut output_back_to_wallet = outputs::P2PKHOutput {
         value: 0,
         address: w.address().clone(),
